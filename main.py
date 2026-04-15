@@ -24,7 +24,7 @@ logger = logging.getLogger("astrbot")
 LLM_API_URL = "http://127.0.0.1:8000/v1/bot/route_intent" # 后端大模型解析接口 URL
 DELAY_BETWEEN_CHAT = 1.5                                    # Chat 模式下消息发送间隔（秒）
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于意图路由与多模态能力的PDF生成双轨插件 (Playwright版)", "1.3.2")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于意图路由与多模态能力的PDF生成双轨插件 (Playwright版)", "1.3.3")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -68,7 +68,7 @@ class MultimodalPDFRouterPlugin(Star):
         question = " ".join(question_texts).strip()
         
         if not question and not image_urls:
-            await event.reply("未检测到有效意图，请@我时发送具体的文本或相应的图片素材。")
+            yield event.plain_result("未检测到有效意图，请使用 /ai 指令时发送具体的文本或相应的图片素材。")
             return
             
         payload = {
@@ -83,11 +83,11 @@ class MultimodalPDFRouterPlugin(Star):
                     if response.status == 200:
                         ans_json = await response.json()
                     else:
-                        await event.reply(f"远程系统异常，链路返回状态码: {response.status}")
+                        yield event.plain_result(f"远程系统异常，链路返回状态码: {response.status}")
                         return
         except Exception as e:
             logger.error(f"[通信模块] 向大语言模型发出调度请求失败: {e}")
-            await event.reply("后端 LLM 的路由 API 访问失败，请检查网络链路与 API URL 配置。")
+            yield event.plain_result("后端 LLM 的路由 API 访问失败，请确保您的后端服务已启动并检查 127.0.0.1:8000 是否可用。")
             return
 
         mode = ans_json.get("mode", "chat")
@@ -95,12 +95,12 @@ class MultimodalPDFRouterPlugin(Star):
         if mode == "chat":
             chat_messages = ans_json.get("chat_messages", [])
             for idx, msg in enumerate(chat_messages):
-                await event.reply(msg)
+                yield event.plain_result(msg)
                 if idx < len(chat_messages) - 1:
                     await asyncio.sleep(DELAY_BETWEEN_CHAT)
                     
         elif mode == "pdf":
-            await event.reply("收到，该问题涉及复杂推导，正在为您生成格式化 PDF 报告...")
+            yield event.plain_result("收到，该问题涉及复杂推导，正在为您生成格式化 PDF 报告...")
             
             raw_pdf_content = ans_json.get("pdf_content", "")
             html_content = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><style>body{{font-family: sans-serif; padding: 20px; line-height: 1.6;}} img {{max-width: 100%;}}</style></head><body>{raw_pdf_content}</body></html>"
@@ -124,11 +124,11 @@ class MultimodalPDFRouterPlugin(Star):
                     await browser.close()
                 
                 # 发送文件
-                await event.reply(File(tmp_pdf_path))
+                yield event.file_result(tmp_pdf_path)
                 
             except Exception as e:
                 logger.error(f"[渲染模块] Playwright 生成 PDF 失败：{e}")
-                await event.reply("PDF 生成引擎发生异常，请联系主人检查 Playwright 环境是否正确安装。")
+                yield event.plain_result("PDF 生成引擎发生异常，请联系主人检查 Playwright 环境是否正确安装。")
             finally:
                 if os.path.exists(tmp_pdf_path):
                     try:
@@ -137,4 +137,4 @@ class MultimodalPDFRouterPlugin(Star):
                         logger.error(f"严重: PDF 缓存文件删除失败: {rm_e}")
                         
         else:
-            await event.reply(f"发现异常，模型指令下发了无法支持的基础模式: {mode}。")
+            yield event.plain_result(f"发现异常，模型指令下发了无法支持的基础模式: {mode}。")
