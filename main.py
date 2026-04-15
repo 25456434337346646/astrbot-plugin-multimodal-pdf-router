@@ -12,7 +12,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.6.7")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.6.8")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -55,9 +55,11 @@ class MultimodalPDFRouterPlugin(Star):
                     if not target_msg_id:
                         continue
                         
-                    adapter = self.context.get_platform_inst(event.get_platform_name())
                     if adapter:
                         msg_data = await adapter.call_api("get_msg", message_id=target_msg_id)
+                        # --- 核心探测点：打印真实报文 ---
+                        logger.info(f"[DEBUG_RAW] 原始消息内容: {msg_data}")
+                        
                         if msg_data and "message" in msg_data:
                             for segment in msg_data["message"]:
                                 if isinstance(segment, dict) and segment.get("type") == "image":
