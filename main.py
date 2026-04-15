@@ -12,7 +12,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "具备深度视觉分析能力的 PDF 插件", "1.5.2")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.6.0")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -74,55 +74,77 @@ class MultimodalPDFRouterPlugin(Star):
             return
         # --------------------
 
-        # 2. 深度视觉大脑 Prompt：赋予模型 OCR 与 逻辑分析灵魂
-        system_prompt = (
-            "你是一个具备顶尖视觉分析与意图分配能力的智能助手。你的核心任务是：\n"
-            "【1. 高精度感知】如果你收到了图片，请先启动你的 OCR 和视觉理解能力，精准捕捉图片中的文字、数学公式、代码逻辑及图表细节。\n"
-            "【2. 意图路由】平衡用户文本与其发送的图片内容，决定回应模式：\n"
-            "   - 如果是普通闲聊、常识问答、或简单的图片描述，请使用 'chat' 模式。\n"
-            "   - 如果涉及复杂的数学学术推导、长篇论文总结、高精度题目解答，且需要精美排版，请强制使用 'pdf' 模式。\n"
-            "【3. 输出约束】你的输出必须是一个合法的 JSON 字符串，严禁包含任何 Markdown 代码块标签，格式如下：\n"
-            "   - chat 模式下：{\"mode\": \"chat\", \"chat_messages\": [\"基于图片和问题的深度回答\"]}\n"
-            "   - pdf 模式下：{\"mode\": \"pdf\", \"pdf_content\": \"包含 LaTeX 公式和排版标签的 HTML 内容\"}"
-        )
-
-        user_content = [{"type": "text", "text": question}]
-        for url in image_urls:
-            user_content.append({"type": "image_url", "image_url": {"url": url}})
-
-        # 选定模型：如果有图，必须使用主人填写的视觉模型
-        target_model = self.config.get("llm_model", "deepseek-chat")
+        # --- 视觉中转链路核心逻辑 ---
+        image_description = ""
         if image_urls:
-            target_model = self.config.get("llm_vision_model", "qwen-vl-max")
-            logger.info(f"[分流引擎] 检测到图片，已自动切换至视觉模型: {target_model}")
+            vision_api_key = self.config.get("llm_api_key", "") # 默认共用 key，也可根据需求扩展
+            vision_model = self.config.get("llm_vision_model", "qwen-vl-max")
+            
+            vision_prompt = "请精准提取图片中的所有文字信息、数学公式、逻辑关系或语法标注。只需返回识别出的原文内容，不要进行多余的分析。"
+            vision_payload = {
+                "model": vision_model,
+                "messages": [
+                    {"role": "user", "content": [
+                        {"type": "text", "text": vision_prompt},
+                        *[{"type": "image_url", "image_url": {"url": url}} for url in image_urls]
+                    ]}
+                ]
+            }
+            
+            try:
+                yield event.plain_result(f"🔍 正在通过 {vision_model} 提取图片细节...")
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(f"{base_url.rstrip('/')}/chat/completions", json=vision_payload, headers=headers) as resp:
+                        if resp.status == 200:
+                            v_data = await resp.json()
+                            image_description = v_data['choices'][0]['message']['content']
+                            logger.info(f"[视觉中转] OCR 识别成功，字数: {len(image_description)}")
+                        else:
+                            yield event.plain_result(f"❌ 视觉模型提取失败 ({resp.status})，将尝试仅基于文本回答。")
+            except Exception as e:
+                logger.error(f"视觉中转阶段异常: {e}")
 
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        payload = {
-            "model": target_model,
+        # 2. 调度“逻辑大脑”（文本模型）进行最终裁决
+        text_model = self.config.get("llm_model", "deepseek-chat")
+        
+        final_system_prompt = (
+            "你是一个具备顶尖逻辑分析能力的智能助手。\n"
+            "你会收到用户的原始提问以及（如果有的话）从图片中提取出的 OCR 参考内容。\n"
+            "你的任务是：结合这些信息，给出深度回答，并决定输出模式。\n"
+            "输出必须为 JSON 格式：\n"
+            "{\"mode\": \"chat\", \"chat_messages\": [\"回答摘要\", \"详细解析\"]}\n"
+            "或\n"
+            "{\"mode\": \"pdf\", \"pdf_content\": \"HTML格式的深度学术报告\"}"
+        )
+        
+        combined_user_input = f"用户问题: {question}\n图片识别内容记录: {image_description}"
+        
+        text_payload = {
+            "model": text_model,
             "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
+                {"role": "system", "content": final_system_prompt},
+                {"role": "user", "content": combined_user_input}
             ],
             "response_format": {"type": "json_object"}
         }
 
-        # 3. 发起同步请求 (内置大脑)
+        # 3. 发起最终逻辑请求
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=headers) as response:
-                    # 优先处理 429 频率限制错误
+                async with session.post(f"{base_url.rstrip('/')}/chat/completions", json=text_payload, headers=headers, timeout=120) as response:
                     if response.status == 429:
-                        yield event.plain_result("⚠️ 请求过于频繁！您的大模型 API 提供商限制了目前的访问速度。如果您使用的是免费 Key，请稍微等几分钟再试，或更换更高等级的 Key。")
+                        yield event.plain_result("⚠️ 逻辑模型请求频繁，请稍后再试。")
                         return
-
                     if response.status != 200:
-                        err_text = await response.text()
-                        yield event.plain_result(f"❌ LLM 请求失败 ({response.status}): {err_text}")
+                        yield event.plain_result(f"❌ 逻辑大脑响应失败 ({response.status})")
                         return
                     
                     res_data = await response.json()
                     ans_str = res_data['choices'][0]['message']['content']
                     ans_json = json.loads(ans_str)
+        except Exception as e:
+            yield event.plain_result(f"🤯 逻辑分析阶段异常: {e}")
+            return
         except Exception as e:
             yield event.plain_result(f"🤯 思考过程发生异常: {e}")
             return
