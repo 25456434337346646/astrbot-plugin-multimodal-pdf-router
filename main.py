@@ -12,7 +12,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.6.5")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.6.6")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -51,8 +51,8 @@ class MultimodalPDFRouterPlugin(Star):
             elif isinstance(comp, Reply):
                 try:
                     target_msg_id = comp.id
-                    # 在旧版 v4.x 中，通过 self.context 获取当前事件对应的适配器进行 API 调用
-                    adapter = self.context.get_adapter(event.platform_name)
+                    # 在 v4.23.1 中，适配器实例通过 get_platform_inst 获取
+                    adapter = self.context.get_platform_inst(event.get_platform_name())
                     if adapter:
                         msg_data = await adapter.call_api("get_msg", message_id=target_msg_id)
                         if msg_data and "message" in msg_data:
