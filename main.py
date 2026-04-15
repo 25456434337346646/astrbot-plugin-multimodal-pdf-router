@@ -12,7 +12,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "内置 LLM 路由引擎的多模态 PDF 生成插件", "1.4.2")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "支持多模态分流的 PDF 生成插件", "1.5.0")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -24,10 +24,13 @@ class MultimodalPDFRouterPlugin(Star):
     async def handle_multimodal_query(self, event: AstrMessageEvent):
         """内置大脑的交互逻辑：直接调用 LLM 并根据意图路由"""
         
-        # 0. 检查配置
+        # 0. 获取配置
         api_key = self.config.get("llm_api_key", "")
         base_url = self.config.get("llm_base_url", "https://api.deepseek.com/v1")
-        model = self.config.get("llm_model", "deepseek-chat")
+        
+        # 0.1 分流逻辑：有图用视觉模型，没图用文本模型
+        has_images = False # 待解析
+        # ------------------
         
         if not api_key:
             yield event.plain_result("⚠️ 请先在插件配置页面填写您的 LLM API Key！")
@@ -88,9 +91,15 @@ class MultimodalPDFRouterPlugin(Star):
         for url in image_urls:
             user_content.append({"type": "image_url", "image_url": {"url": url}})
 
+        # 选定模型：如果有图，必须使用主人填写的视觉模型
+        target_model = self.config.get("llm_model", "deepseek-chat")
+        if image_urls:
+            target_model = self.config.get("llm_vision_model", "qwen-vl-max")
+            logger.info(f"[分流引擎] 检测到图片，已自动切换至视觉模型: {target_model}")
+
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         payload = {
-            "model": model,
+            "model": target_model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content}
