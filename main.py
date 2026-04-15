@@ -12,7 +12,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "内置 LLM 路由引擎的多模态 PDF 生成插件", "1.4.0")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "内置 LLM 路由引擎的多模态 PDF 生成插件", "1.4.1")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -56,9 +56,25 @@ class MultimodalPDFRouterPlugin(Star):
                     logger.error(f"[多模态解析] 提取图片报错: {e}")
 
         question = " ".join(question_texts).replace("/ai", "").replace("/ask", "").replace("/解答", "").replace("/解析", "").strip()
-        if not question and not image_urls:
-            yield event.plain_result("主人，请发送具体的文本或图片，并告诉我您想做什么。")
+        
+        # --- 新增：自我介绍/帮助手册逻辑 ---
+        if not question and not image_urls or question.lower() in ["help", "帮助", "功能"]:
+            help_text = (
+                "🌟 **AstrBot 多模态 PDF 路由插件功能手册** 🌟\n\n"
+                "本插件内置了“智能路由大脑”，能自动感知您的意图并选择最合适的反馈方式：\n\n"
+                "1️⃣ **双轨智能调度**\n"
+                "   - 💬 **Chat 模式**：普通对话时，模拟真人打字时延流式回复。\n"
+                "   - 📄 **PDF 模式**：复杂推导、长篇推演时，自动渲染成精美 PDF 报告发送。\n\n"
+                "2️⃣ **多模态全兼容**\n"
+                "   - 📸 **真图直发**：直接发送图片 + 指令即可解析。\n"
+                "   - 🔄 **回复触发**：通过“回复”某张过往图片并输入指令来追溯解析。\n\n"
+                "3️⃣ **调用指令**\n"
+                "   - `/ai [内容]`、`/ask [内容]`、`/解析`、`/解答`。\n\n"
+                "🛠️ **配置方式**：请前往 AstrBot 管理页面 -> 插件管理 -> 点击本插件的“配置”，填入您的 API Key 即可激活大脑！"
+            )
+            yield event.plain_result(help_text)
             return
+        # ----------------------------------
 
         # 2. 内置大脑 Prompt：判断意图并生成内容
         # 目标：让 LLM 返回 JSON 格式，包含 mode ('chat' 或 'pdf') 和对应内容
