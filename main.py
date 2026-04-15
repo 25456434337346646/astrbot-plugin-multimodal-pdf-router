@@ -151,7 +151,9 @@ class MultimodalPDFRouterPlugin(Star):
                     await page.set_content(html_content)
                     await page.pdf(path=tmp_pdf_path, format="A4")
                     await browser.close()
-                yield event.file_result(tmp_pdf_path)
+                yield event.chain_result([
+                    File(name=os.path.basename(tmp_pdf_path), file=tmp_pdf_path)
+                ])
             except Exception as pe:
                 yield event.plain_result(f"PDF 渲染失败: {pe}")
             finally:
