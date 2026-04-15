@@ -12,7 +12,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "支持多模态分流与友好报错的 PDF 生成插件", "1.5.1")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "具备深度视觉分析能力的 PDF 插件", "1.5.2")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -74,17 +74,16 @@ class MultimodalPDFRouterPlugin(Star):
             return
         # --------------------
 
-        # 2. 内置大脑 Prompt：判断意图并生成内容
-        # 目标：让 LLM 返回 JSON 格式，包含 mode ('chat' 或 'pdf') 和对应内容
+        # 2. 深度视觉大脑 Prompt：赋予模型 OCR 与 逻辑分析灵魂
         system_prompt = (
-            "你是一个智能助手。你需要分析用户的输入（可能包含图片描述）并决定回应模式。\n"
-            "1. 如果用户只是进行普通聊天、问好、或者是简单问答，请使用 'chat' 模式。\n"
-            "2. 如果用户要求进行复杂的学术推导、长篇总结、数学解题且需要精美排版，请使用 'pdf' 模式。\n"
-            "你的输出必须是一个合法的 JSON 字符串，格式如下：\n"
-            "{\"mode\": \"chat\", \"chat_messages\": [\"回复内容1\", \"回复内容2\"]}\n"
-            "或\n"
-            "{\"mode\": \"pdf\", \"pdf_content\": \"HTML格式的精美报告内容\"}\n"
-            "请直接返回 JSON，不要包含任何 Markdown 代码块包裹。"
+            "你是一个具备顶尖视觉分析与意图分配能力的智能助手。你的核心任务是：\n"
+            "【1. 高精度感知】如果你收到了图片，请先启动你的 OCR 和视觉理解能力，精准捕捉图片中的文字、数学公式、代码逻辑及图表细节。\n"
+            "【2. 意图路由】平衡用户文本与其发送的图片内容，决定回应模式：\n"
+            "   - 如果是普通闲聊、常识问答、或简单的图片描述，请使用 'chat' 模式。\n"
+            "   - 如果涉及复杂的数学学术推导、长篇论文总结、高精度题目解答，且需要精美排版，请强制使用 'pdf' 模式。\n"
+            "【3. 输出约束】你的输出必须是一个合法的 JSON 字符串，严禁包含任何 Markdown 代码块标签，格式如下：\n"
+            "   - chat 模式下：{\"mode\": \"chat\", \"chat_messages\": [\"基于图片和问题的深度回答\"]}\n"
+            "   - pdf 模式下：{\"mode\": \"pdf\", \"pdf_content\": \"包含 LaTeX 公式和排版标签的 HTML 内容\"}"
         )
 
         user_content = [{"type": "text", "text": question}]
