@@ -19,7 +19,7 @@ class MultimodalPDFRouterPlugin(Star):
         super().__init__(context)
         self.config = config
         # 确保数据目录在插件目录下，避免跨卷权限问题
-        self.data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+        self.data_dir = os.path.join("/tmp", "astrbot_pdf_reports")
         os.makedirs(self.data_dir, exist_ok=True)
 
     @filter.command("ai", alias={"ask", "解答", "解析"})
