@@ -154,6 +154,9 @@ class MultimodalPDFRouterPlugin(Star):
                     browser = await p.chromium.launch()
                     page = await browser.new_page()
                     await page.set_content(html_content)
+                    # 等待 MathJax 渲染完成
+                    await page.wait_for_function("window.MathJax && window.MathJax.typesetPromise")
+                    await asyncio.sleep(0.5) # 额外缓冲
                     await page.pdf(path=tmp_pdf_path, format="A4")
                     await browser.close()
                 # 使用 file:// 协议发送，NapCat 沙箱内可直接访问
