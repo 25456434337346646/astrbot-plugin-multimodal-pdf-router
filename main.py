@@ -18,8 +18,12 @@ class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
-        # 确保数据目录在插件目录下，避免跨卷权限问题
-        self.data_dir = os.path.join("/tmp", "astrbot_pdf_reports")
+        # NapCat 运行在 macOS App Sandbox (com.tencent.qq) 中，
+        # 只能访问其容器内的文件，必须将 PDF 放在容器内部
+        self.data_dir = os.path.join(
+            os.path.expanduser("~"), "Library", "Containers",
+            "com.tencent.qq", "Data", "tmp", "astrbot_pdf_reports"
+        )
         os.makedirs(self.data_dir, exist_ok=True)
 
     @filter.command("ai", alias={"ask", "解答", "解析"})
@@ -152,16 +156,10 @@ class MultimodalPDFRouterPlugin(Star):
                     await page.set_content(html_content)
                     await page.pdf(path=tmp_pdf_path, format="A4")
                     await browser.close()
-                                # 恢复本地路径发送，adapter 会处理 file:// 转换
-                                # 采用 novel 插件验证过的发送方式：
-                # 1. 使用绝对路径
-                # 2. 传入 url 为 file:// 协议，name 为文件名
-                # 这能确保 NapCat 稳定读取并识别参数
+                # 使用 file:// 协议发送，NapCat 沙箱内可直接访问
                 abs_pdf_path = os.path.abspath(tmp_pdf_path)
                 yield event.chain_result([
                     File(name=os.path.basename(tmp_pdf_path), url=f"file://{abs_pdf_path}")
                 ])
             except Exception as pe:
                 yield event.plain_result(f"PDF 渲染失败: {pe}")
-            finally:
-                if os.path.exists(tmp_pdf_path): os.remove(tmp_pdf_path)
