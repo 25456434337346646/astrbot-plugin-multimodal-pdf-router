@@ -56,12 +56,24 @@ class MultimodalPDFRouterPlugin(Star):
                     adapter = self.context.get_platform_inst(event.get_platform_name())
                     if adapter:
                         msg_data = await adapter.call_api("get_msg", message_id=target_msg_id)
-                        if msg_data and "message" in msg_data:
-                            for segment in msg_data["message"]:
-                                if isinstance(segment, dict) and segment.get("type") == "image":
-                                    seg_data = segment.get("data", {})
-                                    img_url = seg_data.get("url") or seg_data.get("file") or seg_data.get("path")
-                                    if img_url: 
+                        if msg_data:
+                            actual_msg = msg_data.get("message") or msg_data.get("data", {}).get("message")
+                            if isinstance(actual_msg, list):
+                                for segment in actual_msg:
+                                    if isinstance(segment, dict) and segment.get("type") == "image":
+                                        seg_data = segment.get("data", {})
+                                        img_url = seg_data.get("url") or seg_data.get("file") or seg_data.get("path")
+                                        if img_url: 
+                                            if os.path.isabs(img_url) and not img_url.startswith("file://"):
+                                                img_url = f"file://{img_url}"
+                                            image_urls.append(img_url)
+                            elif isinstance(actual_msg, str):
+                                import re
+                                cq_images = re.findall(r'\[CQ:image,([^\]]+)\]', actual_msg)
+                                for params_str in cq_images:
+                                    params = dict(p.split('=', 1) for p in params_str.split(',') if '=' in p)
+                                    img_url = params.get("url") or params.get("file") or params.get("path")
+                                    if img_url:
                                         if os.path.isabs(img_url) and not img_url.startswith("file://"):
                                             img_url = f"file://{img_url}"
                                         image_urls.append(img_url)
