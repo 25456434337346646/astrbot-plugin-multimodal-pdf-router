@@ -145,8 +145,19 @@ class MultimodalPDFRouterPlugin(Star):
         elif mode == "pdf":
             yield event.plain_result("🚀 发现核心意图，正在为您整理精美 PDF 报告...")
             raw_pdf_content = ans_json.get("pdf_content", "")
-            mathjax_config = "<script>MathJax = {tex: {inlineMath: [['$','$'], ['\\\\(','\\\\)']], displayMath: [['$$','$$'], ['\\\\[','\\\\]']]}};</script>"
-            mathjax_script = f"{mathjax_config}<script id=\"MathJax-script\" src=\"https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js\"></script>"
+            mathjax_config = """<script>
+window.MathJax = {
+  tex: { inlineMath: [['$','$'], ['\\\\(','\\\\)']], displayMath: [['$$','$$'], ['\\\\[','\\\\]']] },
+  startup: {
+    pageReady: () => {
+      return MathJax.startup.defaultPageReady().then(() => {
+        window.MATHJAX_DONE = true;
+      });
+    }
+  }
+};
+</script>"""
+            mathjax_script = f"{mathjax_config}<script id=\"MathJax-script\" src=\"https://npm.elemecdn.com/mathjax@3.2.2/es5/tex-mml-chtml.js\"></script>"
             html_content = f"<!DOCTYPE html><html><head><meta charset='UTF-8'>{mathjax_script}<style>body{{font-family: 'Times New Roman', serif; padding: 40px; line-height: 1.6; color: #333;}} .header{{text-align: center; border-bottom: 2px solid #333; margin-bottom: 20px; padding-bottom: 10px;}} .content{{font-size: 14pt; margin-top: 20px;}} h1, h2{{color: #2c3e50;}}</style></head><body><div class='header'><h1>学术深度解析报告</h1><p>生成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}</p></div><div class='content'>{raw_pdf_content}</div></body></html>"
             
             tmp_pdf_path = os.path.join(self.data_dir, f"report_{int(time.time())}.pdf")
@@ -154,9 +165,11 @@ class MultimodalPDFRouterPlugin(Star):
                 async with async_playwright() as p:
                     browser = await p.chromium.launch()
                     page = await browser.new_page()
-                    await page.set_content(html_content)
-                    # 等待 MathJax 渲染完成
-                    await page.wait_for_function("window.MathJax && window.MathJax.typesetPromise")
+                    # 设定稍微长一点的超时时间防止加载页面就直接抛出
+                    await page.set_content(html_content, wait_until="networkidle", timeout=60000)
+                    
+                    # 精准等待渲染完成信号
+                    await page.wait_for_function("window.MATHJAX_DONE === true", timeout=30000)
                     await asyncio.sleep(0.5) # 额外缓冲
                     await page.pdf(path=tmp_pdf_path, format="A4")
                     await browser.close()

@@ -1,5 +1,9 @@
 # 更新日志 (CHANGELOG)
 
+## [1.7.2] - 2026-04-16
+### 修复
+- **PDF 渲染超时问题锁定**：重构了 Playwright 对 MathJax 的生命周期监听逻辑。替换 jsdelivr 为访问稳定的大陆极速镜像 `elemecdn`，并且将原本脆弱的属性探测改为了原生的 Promise `pageReady` 钩子回调（`window.MATHJAX_DONE`）。这一组合彻底根治了偶发的 30 秒等待超时渲染崩溃问题。
+
 ## [1.7.1] - 2026-04-16
 ### 修复
 - **区块级公式不渲染问题**：通过向 MathJax 运行时显式注入 `displayMath: [['$$','$$']]` 与 `inlineMath: [['$','$']]` 配置，修复了默认情况下 MathJax v3 无法识别通过 `$$` 包裹 LaTeX 进行分行渲染的 Bug。
