@@ -112,10 +112,15 @@ class MultimodalPDFRouterPlugin(Star):
 
         # --- 逻辑大脑逻辑（带重试与正则解析） ---
         text_model = self.config.get("llm_model", "deepseek-chat")
-        final_system_prompt = (
-            "你是一个学术级智能助教。结合 OCR 内容补全题目背景。格式要求：使用精美的 HTML/LaTeX。核心推导强制进入 pdf 模式。\n"
-            "严格输出 JSON：{\"mode\": \"chat\", \"chat_messages\": [...]} 或 {\"mode\": \"pdf\", \"pdf_content\": \"HTML内容\"}"
-        )
+        
+        # 强制读取 system_prompt.txt 以确保“取消闲聊”指令生效
+        prompt_path = os.path.join(os.path.dirname(__file__), "system_prompt.txt")
+        if os.path.exists(prompt_path):
+            with open(prompt_path, "r", encoding="utf-8") as f:
+                final_system_prompt = f.read()
+        else:
+            final_system_prompt = "你是一个学术助教。严格输出 JSON：{\"mode\": \"pdf\", \"pdf_content\": \"HTML内容\"}"
+        
         combined_user_input = f"【用户指令】: {question}\n【图片像素级识别记录】: {image_description}"
         text_payload = {"model": text_model, "messages": [{"role": "system", "content": final_system_prompt}, {"role": "user", "content": combined_user_input}], "response_format": {"type": "json_object"}}
 
@@ -138,20 +143,21 @@ class MultimodalPDFRouterPlugin(Star):
                     return
                 await asyncio.sleep(2)
 
-        # 4. 执行路由分发
-        mode = ans_json.get("mode", "chat")
-        if mode == "chat":
-            msgs = ans_json.get("chat_messages", ["主人，识别内容不足以给出完整解答。"])
-            if not isinstance(msgs, list) or not msgs:
-                msgs = ["主人，识别内容不足以给出完整解答。"]
-            for idx, m in enumerate(msgs):
-                # 强制转为 str，防止 None 或其他类型导致 Pydantic 校验崩溃
-                yield event.plain_result(str(m) if m is not None else "(空回复)")
-                if idx < len(msgs) - 1: await asyncio.sleep(1.5)
-        elif mode == "pdf":
-            yield event.plain_result("🚀 发现核心意图，正在为您整理精美 PDF 报告...")
-            raw_pdf_content = ans_json.get("pdf_content", "")
-            mathjax_config = """<script>
+        # 4. 执行路由分发 (主人：已取消闲聊模式，强制 PDF 化)
+        mode = ans_json.get("mode", "pdf")
+        pdf_content = ans_json.get("pdf_content", "")
+        
+        # 逻辑合并：即便模型返回了 chat 模式，也将其内容包装进 PDF 报告中
+        if mode == "chat" or not pdf_content:
+            msgs = ans_json.get("chat_messages", ["暂无详细分析内容。"])
+            if not isinstance(msgs, list): msgs = [str(msgs)]
+            chat_to_html = "".join([f"<p>{m}</p>" for m in msgs])
+            pdf_content = f"<h2>内容交互简报</h2><div style='background:#f9f9f9;padding:15px;border-radius:8px;'>{chat_to_html}</div>"
+        
+        # 进入 PDF 渲染流程
+        yield event.plain_result("🚀 发现核心意图，正在为您整理精美 PDF 报告...")
+        raw_pdf_content = pdf_content
+        mathjax_config = """<script>
 window.MathJax = {
   tex: { inlineMath: [['$','$'], ['\\\\(','\\\\)']], displayMath: [['$$','$$'], ['\\\\[','\\\\]']] },
   startup: {
@@ -163,26 +169,26 @@ window.MathJax = {
   }
 };
 </script>"""
-            mathjax_script = f"{mathjax_config}<script id=\"MathJax-script\" src=\"https://npm.elemecdn.com/mathjax@3.2.2/es5/tex-mml-chtml.js\"></script>"
-            html_content = f"<!DOCTYPE html><html><head><meta charset='UTF-8'>{mathjax_script}<style>body{{font-family: 'Times New Roman', serif; padding: 40px; line-height: 1.6; color: #333;}} .header{{text-align: center; border-bottom: 2px solid #333; margin-bottom: 20px; padding-bottom: 10px;}} .content{{font-size: 14pt; margin-top: 20px;}} h1, h2{{color: #2c3e50;}}</style></head><body><div class='header'><h1>学术深度解析报告</h1><p>生成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}</p></div><div class='content'>{raw_pdf_content}</div></body></html>"
-            
-            tmp_pdf_path = os.path.join(self.data_dir, f"report_{int(time.time())}.pdf")
-            try:
-                async with async_playwright() as p:
-                    browser = await p.chromium.launch()
-                    page = await browser.new_page()
-                    # 设定稍微长一点的超时时间防止加载页面就直接抛出
-                    await page.set_content(html_content, wait_until="networkidle", timeout=60000)
-                    
-                    # 精准等待渲染完成信号
-                    await page.wait_for_function("window.MATHJAX_DONE === true", timeout=30000)
-                    await asyncio.sleep(0.5) # 额外缓冲
-                    await page.pdf(path=tmp_pdf_path, format="A4")
-                    await browser.close()
-                # 使用 file:// 协议发送，NapCat 沙箱内可直接访问
-                abs_pdf_path = os.path.abspath(tmp_pdf_path)
-                yield event.chain_result([
-                    File(name=os.path.basename(tmp_pdf_path), url=f"file://{abs_pdf_path}")
-                ])
-            except Exception as pe:
-                yield event.plain_result(f"PDF 渲染失败: {pe}")
+        mathjax_script = f"{mathjax_config}<script id=\"MathJax-script\" src=\"https://npm.elemecdn.com/mathjax@3.2.2/es5/tex-mml-chtml.js\"></script>"
+        html_content = f"<!DOCTYPE html><html><head><meta charset='UTF-8'>{mathjax_script}<style>body{{font-family: 'Times New Roman', serif; padding: 40px; line-height: 1.6; color: #333;}} .header{{text-align: center; border-bottom: 2px solid #333; margin-bottom: 20px; padding-bottom: 10px;}} .content{{font-size: 14pt; margin-top: 20px;}} h1, h2{{color: #2c3e50;}}</style></head><body><div class='header'><h1>学术深度解析报告</h1><p>生成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}</p></div><div class='content'>{raw_pdf_content}</div></body></html>"
+        
+        tmp_pdf_path = os.path.join(self.data_dir, f"report_{int(time.time())}.pdf")
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch()
+                page = await browser.new_page()
+                # 设定稍微长一点的超时时间防止加载页面就直接抛出
+                await page.set_content(html_content, wait_until="networkidle", timeout=60000)
+                
+                # 精准等待渲染完成信号
+                await page.wait_for_function("window.MATHJAX_DONE === true", timeout=30000)
+                await asyncio.sleep(0.5) # 额外缓冲
+                await page.pdf(path=tmp_pdf_path, format="A4")
+                await browser.close()
+            # 使用 file:// 协议发送，NapCat 沙箱内可直接访问
+            abs_pdf_path = os.path.abspath(tmp_pdf_path)
+            yield event.chain_result([
+                File(name=os.path.basename(tmp_pdf_path), url=f"file://{abs_pdf_path}")
+            ])
+        except Exception as pe:
+            yield event.plain_result(f"PDF 渲染失败: {pe}")
