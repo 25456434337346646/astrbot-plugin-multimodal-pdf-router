@@ -105,7 +105,10 @@ class MultimodalPDFRouterPlugin(Star):
                             elif resp.status == 429: await asyncio.sleep(2)
                 except Exception as e:
                     logger.error(f"视觉异常: {e}")
-                    await asyncio.sleep(1)
+                    if attempt == max_retries:
+                        yield event.plain_result(f"⚠️ 图片识别失败（已重试 {max_retries+1} 次）：{e}\n将尝试仅基于您的文字描述进行回答。")
+                    else:
+                        await asyncio.sleep(1)
 
         # --- 逻辑大脑逻辑（带重试与正则解析） ---
         text_model = self.config.get("llm_model", "deepseek-chat")
@@ -139,8 +142,11 @@ class MultimodalPDFRouterPlugin(Star):
         mode = ans_json.get("mode", "chat")
         if mode == "chat":
             msgs = ans_json.get("chat_messages", ["主人，识别内容不足以给出完整解答。"])
+            if not isinstance(msgs, list) or not msgs:
+                msgs = ["主人，识别内容不足以给出完整解答。"]
             for idx, m in enumerate(msgs):
-                yield event.plain_result(m)
+                # 强制转为 str，防止 None 或其他类型导致 Pydantic 校验崩溃
+                yield event.plain_result(str(m) if m is not None else "(空回复)")
                 if idx < len(msgs) - 1: await asyncio.sleep(1.5)
         elif mode == "pdf":
             yield event.plain_result("🚀 发现核心意图，正在为您整理精美 PDF 报告...")

@@ -1,5 +1,10 @@
 # 更新日志 (CHANGELOG)
 
+## [1.7.3] - 2026-04-16
+### 修复
+- **Pydantic 类型校验崩溃**：`chat_messages` 列表中的元素在喂给 `event.plain_result()` 前，现在强制执行 `str()` 类型转换，彻底防止 LLM 返回了 `null` / 数字等非字符串类型导致的 Pydantic `ValidationError` 崩溃。
+- **视觉 API 失败后的静默崩溃**：之前视觉 API 三次重试全部失败时，代码会带着空的 `image_description` 继续调用文本模型，并最终因 LLM 返回格式异常而 crash。现在已在重试耗尽时主动向用户输出明确的提示信息，并优雅地降级为纯文本问答，不再崩溃。
+
 ## [1.7.2] - 2026-04-16
 ### 修复
 - **PDF 渲染超时问题锁定**：重构了 Playwright 对 MathJax 的生命周期监听逻辑。替换 jsdelivr 为访问稳定的大陆极速镜像 `elemecdn`，并且将原本脆弱的属性探测改为了原生的 Promise `pageReady` 钩子回调（`window.MATHJAX_DONE`）。这一组合彻底根治了偶发的 30 秒等待超时渲染崩溃问题。
