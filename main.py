@@ -153,8 +153,13 @@ class MultimodalPDFRouterPlugin(Star):
                     await page.pdf(path=tmp_pdf_path, format="A4")
                     await browser.close()
                                 # 恢复本地路径发送，adapter 会处理 file:// 转换
+                                # 采用 novel 插件验证过的发送方式：
+                # 1. 使用绝对路径
+                # 2. 传入 url 为 file:// 协议，name 为文件名
+                # 这能确保 NapCat 稳定读取并识别参数
+                abs_pdf_path = os.path.abspath(tmp_pdf_path)
                 yield event.chain_result([
-                    File(name=os.path.basename(tmp_pdf_path), file=tmp_pdf_path)
+                    File(name=os.path.basename(tmp_pdf_path), url=f"file://{abs_pdf_path}")
                 ])
             except Exception as pe:
                 yield event.plain_result(f"PDF 渲染失败: {pe}")
