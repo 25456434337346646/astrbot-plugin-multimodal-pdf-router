@@ -14,7 +14,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.8.5")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.8.6")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -241,6 +241,7 @@ class MultimodalPDFRouterPlugin(Star):
         image_description = ""
         if image_urls:
             vision_model = self.config.get("llm_vision_model", "qwen-vl-max")
+            vision_prompt = "请精准提取图片中的所有文本内容。若包含数学公式，请务必使用清晰且符合规范的 LaTeX 语法输出。不遗漏任何细节。"
             vision_payload = {
                 "model": vision_model,
                 "messages": [{"role": "user", "content": [{"type": "text", "text": vision_prompt}, *[{"type": "image_url", "image_url": {"url": url}} for url in image_urls]]}]
