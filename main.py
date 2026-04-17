@@ -5,6 +5,7 @@ import os
 import time
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from playwright.async_api import async_playwright
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
@@ -75,9 +76,27 @@ class MultimodalPDFRouterPlugin(Star):
                         logger.warning(f"[Reply调试] 无法从Reply组件获取消息ID，跳过处理")
                         continue
                         
-                    adapter = self.context.get_platform_inst(event.get_platform_name())
+                    # 使用异步超时机制获取平台适配器，防止阻塞
+                    platform_name = event.get_platform_name()
+                    if not platform_name:
+                        logger.warning(f"[Reply调试] 无法获取平台名称，跳过适配器获取")
+                        continue
+                    try:
+                        # 在可能阻塞的同步调用上使用线程池执行，并设置超时
+                        loop = asyncio.get_event_loop()
+                        with ThreadPoolExecutor() as executor:
+                            adapter = await asyncio.wait_for(
+                                loop.run_in_executor(executor, self.context.get_platform_inst, platform_name),
+                                timeout=5.0
+                            )
+                    except asyncio.TimeoutError:
+                        logger.warning(f"[Reply调试] 获取平台适配器超时 (platform={platform_name})")
+                        continue
+                    except Exception as e:
+                        logger.error(f"[Reply调试] 获取平台适配器异常: {e}")
+                        continue
                     if not adapter:
-                        logger.warning(f"[Reply调试] 无法获取平台适配器")
+                        logger.warning(f"[Reply调试] 获取平台适配器返回 None (platform={platform_name})")
                         continue
                     
                     # 尝试多种API方法获取消息
