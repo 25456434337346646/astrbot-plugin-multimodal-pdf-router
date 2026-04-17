@@ -45,6 +45,7 @@ class MultimodalPDFRouterPlugin(Star):
         segments = getattr(event.message_obj, "message", []) or getattr(event.message_obj, "components", [])
             
         quoted_texts = []
+        logger.info(f"[诊断_段落解析] 发现 {len(segments)} 个组件。分别对应的类型推导为: {[(type(c).__name__, getattr(c, '__dict__', str(c))) for c in segments]}")
         for comp in segments:
             if isinstance(comp, Plain):
                 question_texts.append(comp.text)
@@ -56,42 +57,139 @@ class MultimodalPDFRouterPlugin(Star):
                     image_urls.append(img_url)
             elif isinstance(comp, Reply):
                 try:
-                    target_msg_id = getattr(comp, "start_id", getattr(comp, "id", None))
-                    if not target_msg_id: continue
+                    # 增强Reply组件属性检测 - 尝试多种可能的消息ID属性
+                    target_msg_id = None
+                    possible_id_attrs = ['start_id', 'id', 'message_id', 'msg_id', 'reply_id', 'target_id']
+                    
+                    logger.info(f"[Reply调试] Reply组件所有属性: {comp.__dict__}")
+                    
+                    for attr in possible_id_attrs:
+                        if hasattr(comp, attr):
+                            attr_value = getattr(comp, attr)
+                            if attr_value:
+                                target_msg_id = attr_value
+                                logger.info(f"[Reply调试] 找到消息ID属性 {attr}: {target_msg_id}")
+                                break
+                    
+                    if not target_msg_id:
+                        logger.warning(f"[Reply调试] 无法从Reply组件获取消息ID，跳过处理")
+                        continue
+                        
                     adapter = self.context.get_platform_inst(event.get_platform_name())
-                    if adapter:
-                        msg_data = await adapter.call_api("get_msg", message_id=target_msg_id)
-                        logger.info(f"[Reply诊断] get_msg 原始返回: {json.dumps(msg_data, ensure_ascii=False, default=str)[:500]}")
-                        if msg_data:
-                            actual_msg = msg_data.get("message") or msg_data.get("data", {}).get("message")
-                            if isinstance(actual_msg, list):
-                                for segment in actual_msg:
-                                    if not isinstance(segment, dict): continue
-                                    seg_type = segment.get("type")
-                                    seg_data = segment.get("data", {})
-                                    if seg_type == "text":
-                                        txt = seg_data.get("text", "")
-                                        if txt: quoted_texts.append(txt)
-                                    elif seg_type == "image":
-                                        img_url = seg_data.get("url") or seg_data.get("file") or seg_data.get("path")
-                                        if img_url: 
-                                            if os.path.isabs(img_url) and not img_url.startswith("file://"):
-                                                img_url = f"file://{img_url}"
-                                            image_urls.append(img_url)
-                            elif isinstance(actual_msg, str):
-                                cq_images = re.findall(r'\[CQ:image,([^\]]+)\]', actual_msg)
-                                for params_str in cq_images:
-                                    params = dict(p.split('=', 1) for p in params_str.split(',') if '=' in p)
-                                    img_url = params.get("url") or params.get("file") or params.get("path")
-                                    if img_url:
-                                        if os.path.isabs(img_url) and not img_url.startswith("file://"):
-                                            img_url = f"file://{img_url}"
-                                        image_urls.append(img_url)
-                                pure_text = re.sub(r'\[CQ:[^\]]+\]', '', actual_msg).strip()
-                                if pure_text:
-                                    quoted_texts.append(pure_text)
+                    if not adapter:
+                        logger.warning(f"[Reply调试] 无法获取平台适配器")
+                        continue
+                    
+                    # 尝试多种API方法获取消息
+                    msg_data = None
+                    api_methods = [
+                        ("get_msg", {"message_id": target_msg_id}),
+                        ("get_group_msg_history", {"group_id": getattr(event, "group_id", None), "message_seq": target_msg_id}),
+                        ("get_forward_msg", {"id": target_msg_id})
+                    ]
+                    
+                    for api_name, params in api_methods:
+                        try:
+                            if api_name == "get_group_msg_history" and not params.get("group_id"):
+                                continue
+                            logger.info(f"[Reply调试] 尝试API: {api_name}, 参数: {params}")
+                            msg_data = await adapter.call_api(api_name, **params)
+                            if msg_data:
+                                logger.info(f"[Reply调试] {api_name} 成功返回数据")
+                                break
+                        except Exception as api_e:
+                            logger.warning(f"[Reply调试] {api_name} 调用失败: {api_e}")
+                            continue
+                    
+                    if not msg_data:
+                        logger.warning(f"[Reply调试] 所有API方法都失败，无法获取引用消息")
+                        continue
+                        
+                    logger.info(f"[Reply调试] 最终获取的消息数据: {json.dumps(msg_data, ensure_ascii=False, default=str)[:800]}")
+                    
+                    # 解析消息内容 - 支持多种数据结构
+                    actual_msg = None
+                    if isinstance(msg_data, dict):
+                        # 尝试多种可能的消息字段路径
+                        msg_paths = [
+                            ["message"],
+                            ["data", "message"], 
+                            ["data", "messages"],
+                            ["messages"],
+                            ["content"]
+                        ]
+                        
+                        for path in msg_paths:
+                            temp_data = msg_data
+                            try:
+                                for key in path:
+                                    temp_data = temp_data.get(key)
+                                    if temp_data is None:
+                                        break
+                                if temp_data is not None:
+                                    actual_msg = temp_data
+                                    logger.info(f"[Reply调试] 在路径 {' -> '.join(path)} 找到消息内容")
+                                    break
+                            except (AttributeError, TypeError):
+                                continue
+                    
+                    if actual_msg is None:
+                        logger.warning(f"[Reply调试] 无法从返回数据中提取消息内容")
+                        continue
+                    
+                    # 处理结构化消息格式
+                    if isinstance(actual_msg, list):
+                        logger.info(f"[Reply调试] 处理结构化消息，共 {len(actual_msg)} 个段落")
+                        for i, segment in enumerate(actual_msg):
+                            if not isinstance(segment, dict): 
+                                logger.warning(f"[Reply调试] 段落 {i} 不是字典格式: {type(segment)}")
+                                continue
+                            seg_type = segment.get("type")
+                            seg_data = segment.get("data", {})
+                            logger.info(f"[Reply调试] 段落 {i}: type={seg_type}, data={seg_data}")
+                            
+                            if seg_type == "text":
+                                txt = seg_data.get("text", "")
+                                if txt: 
+                                    quoted_texts.append(txt)
+                                    logger.info(f"[Reply调试] 提取文本: {txt[:100]}...")
+                            elif seg_type == "image":
+                                img_url = seg_data.get("url") or seg_data.get("file") or seg_data.get("path")
+                                if img_url: 
+                                    if os.path.isabs(img_url) and not img_url.startswith("file://"):
+                                        img_url = f"file://{img_url}"
+                                    image_urls.append(img_url)
+                                    logger.info(f"[Reply调试] 提取图片: {img_url}")
+                    
+                    # 处理CQ码字符串格式
+                    elif isinstance(actual_msg, str):
+                        logger.info(f"[Reply调试] 处理CQ码字符串: {actual_msg[:200]}...")
+                        
+                        # 提取图片
+                        cq_images = re.findall(r'\[CQ:image,([^\]]+)\]', actual_msg)
+                        for params_str in cq_images:
+                            try:
+                                params = dict(p.split('=', 1) for p in params_str.split(',') if '=' in p)
+                                img_url = params.get("url") or params.get("file") or params.get("path")
+                                if img_url:
+                                    if os.path.isabs(img_url) and not img_url.startswith("file://"):
+                                        img_url = f"file://{img_url}"
+                                    image_urls.append(img_url)
+                                    logger.info(f"[Reply调试] 从CQ码提取图片: {img_url}")
+                            except Exception as cq_e:
+                                logger.warning(f"[Reply调试] CQ码解析失败: {cq_e}")
+                        
+                        # 提取纯文本
+                        pure_text = re.sub(r'\[CQ:[^\]]+\]', '', actual_msg).strip()
+                        if pure_text:
+                            quoted_texts.append(pure_text)
+                            logger.info(f"[Reply调试] 提取纯文本: {pure_text[:100]}...")
+                    
+                    else:
+                        logger.warning(f"[Reply调试] 未知的消息格式: {type(actual_msg)}")
+                        
                 except Exception as e:
-                    logger.error(f"[多模态解析] 提取 Reply 内容报错: {e}", exc_info=True)
+                    logger.error(f"[Reply调试] 提取 Reply 内容报错: {e}", exc_info=True)
 
         question = " ".join(question_texts).replace("/ai", "").replace("/ask", "").replace("/解答", "").replace("/解析", "").strip()
         
