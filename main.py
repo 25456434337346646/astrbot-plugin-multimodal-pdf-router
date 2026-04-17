@@ -14,7 +14,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.8.2")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.8.4")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -33,9 +33,10 @@ class MultimodalPDFRouterPlugin(Star):
         
         # 0. 获取配置
         api_key = self.config.get("llm_api_key", "")
-        # 基础 URL 已拆分为 OCR（视觉） 和 文本（语言） 两个独立配置
-        ocr_base_url = self.config.get("ocr_api_url", "https://api.deepseek.com/v1")
-        text_base_url = self.config.get("text_api_url", "https://api.deepseek.com/v1")
+        # 统一使用 llm_base_url，简化 UI 配置
+        base_url = self.config.get("llm_base_url", "https://api.deepseek.com/v1")
+        ocr_base_url = base_url
+        text_base_url = base_url
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         
         if not api_key:
