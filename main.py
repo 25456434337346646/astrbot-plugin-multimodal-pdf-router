@@ -7,6 +7,8 @@ import json
 import re
 from concurrent.futures import ThreadPoolExecutor
 from playwright.async_api import async_playwright
+from pdf2image import convert_from_path
+import tempfile
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api.message_components import Plain, Image, Reply, File
@@ -44,6 +46,8 @@ class MultimodalPDFRouterPlugin(Star):
         # 1. 提取消息内容
         question_texts = []
         image_urls = []
+        pdf_texts = []  # 收集 PDF 文本内容（直接提取）
+        pdf_urls = []   # 当 PDF 无可提取文本时，用于 OCR 处理的 PDF 文件路径
         segments = getattr(event.message_obj, "message", []) or getattr(event.message_obj, "components", [])
             
         quoted_texts = []
@@ -58,6 +62,34 @@ class MultimodalPDFRouterPlugin(Star):
                     if os.path.isabs(img_url) and not img_url.startswith("file://"):
                         img_url = f"file://{img_url}"
                     image_urls.append(img_url)
+            # 处理文件组件，尤其是 PDF
+            elif isinstance(comp, File):
+                file_url = comp.url or comp.file
+                if file_url and file_url.lower().endswith('.pdf'):
+                    # 将本地路径转为 file:// 以便读取
+                    if os.path.isabs(file_url) and not file_url.startswith("file://"):
+                        file_path = file_url
+                    else:
+                        # 可能是相对路径或 file:// 前缀
+                        file_path = file_url.replace('file://', '')
+                    try:
+                        import PyPDF2
+                        with open(file_path, 'rb') as f:
+                            reader = PyPDF2.PdfReader(f)
+                            text_pages = []
+                            for page in reader.pages:
+                                txt = page.extract_text() or ''
+                                text_pages.append(txt)
+                            pdf_content = "\n".join(text_pages).strip()
+                            if pdf_content:
+                                pdf_texts.append(pdf_content)
+                                logger.info(f"[PDF处理] 成功提取 PDF 文本, 长度 {len(pdf_content)}")
+                            else:
+                                # 文本为空，可能是扫描版 PDF，标记为需 OCR 的文件
+                                pdf_urls.append(file_path)
+                                logger.info(f"[PDF处理] PDF 未提取到文本，加入 OCR 队列: {file_path}")
+                    except Exception as e:
+                        logger.warning(f"[PDF处理] 读取或解析 PDF 失败: {e}")
             elif isinstance(comp, Reply):
                 try:
                     # 增强Reply组件属性检测 - 尝试多种可能的消息ID属性
@@ -237,6 +269,20 @@ class MultimodalPDFRouterPlugin(Star):
             return
 
         max_retries = 2
+        # --- 处理 PDF OCR（将扫描 PDF 转为图片并加入 OCR 队列） ---
+        if pdf_urls:
+            for pdf_path in pdf_urls:
+                try:
+                    pages = convert_from_path(pdf_path, fmt='png')
+                    for idx, page_img in enumerate(pages):
+                        # 保存为临时 PNG 文件，放在 data_dir 下，方便后续 file:// 访问
+                        tmp_png_path = os.path.join(self.data_dir, f"pdf_{os.path.basename(pdf_path)}_page{idx}.png")
+                        page_img.save(tmp_png_path, format='PNG')
+                        image_urls.append(f"file://{tmp_png_path}")
+                        logger.info(f"[PDF OCR] 已生成页面图片并加入 OCR 队列: {tmp_png_path}")
+                except Exception as e:
+                    logger.warning(f"[PDF OCR] 将 PDF 转图片失败 ({pdf_path}): {e}")
+
         # --- 视觉提取逻辑（带重试） ---
         image_description = ""
         if image_urls:
@@ -291,6 +337,11 @@ class MultimodalPDFRouterPlugin(Star):
             quoted_text_str = " ".join(quoted_texts).strip()
             if quoted_text_str:
                 combined_user_input += f"【被引用的历史上下文】:\n{quoted_text_str}\n\n"
+        # 若有 PDF 文本（OCR/提取），加入上下文
+        if pdf_texts:
+            pdf_combined = "\n".join(pdf_texts).strip()
+            if pdf_combined:
+                combined_user_input += f"【引用的 PDF 内容】:\n{pdf_combined}\n\n"
         combined_user_input += f"【用户的当前指令】: {question}\n【图片像素级识别记录】: {image_description}"
         text_payload = {"model": text_model, "messages": [{"role": "system", "content": final_system_prompt}, {"role": "user", "content": combined_user_input}], "response_format": {"type": "json_object"}}
 
