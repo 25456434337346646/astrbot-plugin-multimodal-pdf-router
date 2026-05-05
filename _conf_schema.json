@@ -1,0 +1,83 @@
+{
+    "text_api_url": {
+        "description": "逻辑大脑（文本）接口地址",
+        "type": "string",
+        "hint": "用于文本生成的接口地址，例如 https://api.deepseek.com/v1",
+        "default": "https://api.deepseek.com/v1"
+    },
+    "text_api_key": {
+        "description": "逻辑大脑（文本）API Key",
+        "type": "string",
+        "hint": "用于逻辑分析模型的 API 密钥",
+        "obvious_hint": true,
+        "default": ""
+    },
+    "ocr_api_url": {
+        "description": "视觉解析（OCR）接口地址",
+        "type": "string",
+        "hint": "用于图片识别的接口地址，需支持 Vision，例如 https://api.deepseek.com/v1",
+        "default": "https://api.deepseek.com/v1"
+    },
+    "ocr_api_key": {
+        "description": "视觉解析（OCR）API Key",
+        "type": "string",
+        "hint": "用于视觉识别模型的 API 密钥",
+        "obvious_hint": true,
+        "default": ""
+    },
+    "llm_model": {
+        "description": "逻辑大脑模型名称",
+        "type": "string",
+        "hint": "文本对话模型，例如 deepseek-chat",
+        "default": "deepseek-chat"
+    },
+    "llm_vision_model": {
+        "description": "视觉识别模型名称",
+        "type": "string",
+        "hint": "多模态模型，例如 qwen-vl-max 或 gpt-4o",
+        "default": "qwen-vl-max"
+    },
+    "delay_between_chat": {
+        "description": "交互时延",
+        "type": "float",
+        "hint": "消息发送间隔（秒）",
+        "default": 1.5
+    },
+    "format_cleaner_enabled": {
+        "description": "启用格式清洗层",
+        "type": "bool",
+        "hint": "使用 DeepSeek 模型自动修复输出格式，提升多模型兼容性",
+        "default": true
+    },
+    "format_cleaner_api_key": {
+        "description": "格式清洗层 API Key",
+        "type": "string",
+        "hint": "选填。用于自动修复/清洗输出格式的 API 密钥",
+        "obvious_hint": true,
+        "default": ""
+    },
+    "format_cleaner_api_url": {
+        "description": "格式清洗层 API 地址",
+        "type": "string",
+        "hint": "选填。清洗模型的 API 地址，例如 https://api.deepseek.com/v1",
+        "default": "https://api.deepseek.com/v1"
+    },
+    "format_cleaner_model": {
+        "description": "格式清洗层模型名称",
+        "type": "string",
+        "hint": "选填。清洗模型名，例如 deepseek-chat",
+        "default": "deepseek-chat"
+    },
+    "fallback_models": {
+        "description": "备用文本模型列表 (逗号分隔)",
+        "type": "string",
+        "hint": "当主逻辑模型超时或失败时，依次尝试这些模型。例如: gpt-4o,claude-3-5-sonnet",
+        "default": ""
+    },
+    "fallback_vision_models": {
+        "description": "备用视觉模型列表 (逗号分隔)",
+        "type": "string",
+        "hint": "当主视觉模型 (OCR) 超时或失败时，依次尝试这些模型。例如: gpt-4o,qwen-vl-plus",
+        "default": ""
+    }
+}

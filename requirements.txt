@@ -1,0 +1,5 @@
+playwright
+aiohttp
+PyPDF2
+pdf2image
+PyMuPDF
