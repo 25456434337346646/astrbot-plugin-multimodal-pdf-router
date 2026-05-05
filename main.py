@@ -197,9 +197,11 @@ class MultimodalPDFRouterPlugin(Star):
             r'\\begin\{([a-z*]+)\}.*?\\end\{\1\}'
         ]
         for p in math_patterns:
+            # 增加对内部 < > 的转义保护，防止被 HTML 误解析
             html = re.sub(p, lambda m: get_mask(m.group(0).replace('<', ' \\lt ').replace('>', ' \\gt '), "MATH"), html, flags=re.DOTALL)
 
         # --- 第三步：处理残留的裸露 LaTeX 命令 ---
+        # 排除已经被 $ 包裹的字符，只针对真正的“裸露”命令
         CMDS = (r'\\(?:mathbb|mathcal|overline|underline|frac|dfrac|sqrt|'
                 r'int|iint|oint|sum|prod|lim|limsup|liminf|sup|inf|max|min|'
                 r'sin|cos|tan|cot|log|ln|exp|det|dim|gcd|'
@@ -213,11 +215,11 @@ class MultimodalPDFRouterPlugin(Star):
                 r'cdot|cdots|ldots|times|div|pm|mp|circ|'
                 r'text|textrm|mathrm|mathbf|operatorname|boldsymbol|'
                 r'left|right|big|Big|bigg|Bigg|'
-                r'begin|end|cases|quad|qquad|displaystyle)')
+                r'begin|end|cases|aligned|matrix|vmatrix|bmatrix|quad|qquad|displaystyle)')
         
         MC = r"[a-zA-Z0-9_()\[\]|{}=<>+\-*/^,.:;!']"
-        # 识别以反斜杠开头且包含后续 LaTeX 特征的字符序列
-        bare_pattern = r'(?:' + CMDS + r')(?:' + MC + r'|' + CMDS + r'|\\\\|\s)*'
+        # 识别以反斜杠开头且包含后续 LaTeX 特征的字符序列，注意不要吃掉闭合的美元符
+        bare_pattern = r'(?<!\$)(?:' + CMDS + r')(?:' + MC + r'|' + CMDS + r'|\\\\|\s)*'
 
         def wrap_bare(m):
             content = m.group(0).strip()
@@ -290,7 +292,7 @@ class MultimodalPDFRouterPlugin(Star):
                 {"role": "user", "content": cleaner_prompt}
             ],
             "temperature": 0.1,  # 降低随机性
-            "max_tokens": 4000
+            "max_tokens": 16000
         }
         
         try:
