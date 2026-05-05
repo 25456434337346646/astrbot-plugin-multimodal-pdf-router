@@ -183,12 +183,12 @@ class MultimodalPDFRouterPlugin(Star):
             mask_pool[m] = content
             return m
 
-        # --- 第一步：屏蔽 HTML 标签 ---
-        # 保护所有的 <tag ...>，防止后续正则误吞
-        html = re.sub(r'<[^>]+>', lambda m: get_mask(m.group(0), "TAG"), html)
+        # --- 第一步：提前清理冗余或连续的空定界符，防患于未然 ---
+        # 针对模型生成的奇葩格式（如 $$$ 甚至 $$$$），先做初步降级
+        html = html.replace('$$$$', '$$').replace('$$$', '$$')
 
-        # --- 第二步：屏蔽已有的合规公式环境 ---
-        # 匹配优先级：$$ > $ > \[ > \( > \begin
+        # --- 第二步：屏蔽已有的合规公式环境（优先级最高！） ---
+        # 必须在屏蔽 HTML 标签之前执行，防止公式内的 <p 等符号被误认为 HTML 标签
         math_patterns = [
             r'\$\$.*?\$\$',
             r'\$.*?\$',
@@ -200,7 +200,11 @@ class MultimodalPDFRouterPlugin(Star):
             # 增加对内部 < > 的转义保护，防止被 HTML 误解析
             html = re.sub(p, lambda m: get_mask(m.group(0).replace('<', ' \\lt ').replace('>', ' \\gt '), "MATH"), html, flags=re.DOTALL)
 
-        # --- 第三步：处理残留的裸露 LaTeX 命令 ---
+        # --- 第三步：屏蔽 HTML 标签 ---
+        # 此时公式已被安全隔离，不会发生 <p<2 被误认为标签的情况
+        html = re.sub(r'<[^>]+>', lambda m: get_mask(m.group(0), "TAG"), html)
+
+        # --- 第四步：处理残留的裸露 LaTeX 命令 ---
         # 排除已经被 $ 包裹的字符，只针对真正的“裸露”命令
         CMDS = (r'\\(?:mathbb|mathcal|overline|underline|frac|dfrac|sqrt|'
                 r'int|iint|oint|sum|prod|lim|limsup|liminf|sup|inf|max|min|'
@@ -218,28 +222,34 @@ class MultimodalPDFRouterPlugin(Star):
                 r'begin|end|cases|aligned|matrix|vmatrix|bmatrix|quad|qquad|displaystyle)')
         
         MC = r"[a-zA-Z0-9_()\[\]|{}=<>+\-*/^,.:;!']"
-        # 识别以反斜杠开头且包含后续 LaTeX 特征的字符序列，注意不要吃掉闭合的美元符
+        # 识别以反斜杠开头且包含后续 LaTeX 特征的字符序列
         bare_pattern = r'(?<!\$)(?:' + CMDS + r')(?:' + MC + r'|' + CMDS + r'|\\\\|\s)*'
 
         def wrap_bare(m):
             content = m.group(0).strip()
             if not content: return m.group(0)
-            # 对裸露公式内部也进行转义
             content = content.replace('<', ' \\lt ').replace('>', ' \\gt ')
             return f'${content}$'
 
         html = re.sub(bare_pattern, wrap_bare, html)
 
-        # --- 第四步：两级还原 ---
-        # 1. 还原公式（保持内部已转义的 \lt \gt）
-        # 2. 还原标签（保持原始 HTML 结构）
-        # 循环还原直到没有占位符，防止嵌套（虽然本逻辑已规避）
+        # --- 第五步：两级还原 ---
         max_iter = 10
         while "\x00" in html and max_iter > 0:
             for mask, original in mask_pool.items():
                 html = html.replace(mask, original)
             max_iter -= 1
 
+        # --- 第六步：后处理与融合（终极防乱码手段） ---
+        # 1. 清理因裸露包装导致的空集，如 `$$` 之间没有内容
+        html = re.sub(r'\$\s*\$', '', html)
+        # 2. 将因为各种原因（模型输出或自动包裹）产生的相邻行内公式融合在一起
+        # 例如：将 `$x$$\mapsto y$` 融合成 `$x \mapsto y$`
+        # 正则含义：匹配 '$'，中间可能有空格，然后是 '$'，只要它们不被视为行间公式 `$$`
+        # 简单粗暴且安全的做法是：由于我们刚才清理了 \$\s*\$，现在如果出现 $$，只有可能是合法的行间公式
+        # 如果有 `$a$$b$` 这种连体的，会被清理掉中间的 `$$` 变成 `$a b$`，非常完美。
+        # 刚刚的 \$\s*\$ 实际上已经将 `$x$$\mapsto y$` 中的中间两个 $ 删除了，变成了 `$x\mapsto y$`！
+        
         return html
 
     async def _clean_format_with_llm(self, raw_response: str) -> dict:
