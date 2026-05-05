@@ -306,7 +306,7 @@ class MultimodalPDFRouterPlugin(Star):
                     f"{cleaner_api_url.rstrip('/')}/chat/completions",
                     json=payload,
                     headers={"Authorization": f"Bearer {cleaner_api_key}", "Content-Type": "application/json"},
-                    timeout=30,
+                    timeout=120,
                 ) as resp:
                     if resp.status == 200:
                         data = await resp.json()
@@ -762,7 +762,7 @@ class MultimodalPDFRouterPlugin(Star):
                                 f"{ocr_base_url.rstrip('/')}/chat/completions",
                                 json=vision_payload,
                                 headers={"Authorization": f"Bearer {ocr_api_key}", "Content-Type": "application/json"},
-                                timeout=90,
+                                timeout=300,
                             ) as resp:
                                 if resp.status == 200:
                                     v_data = await resp.json()
@@ -886,7 +886,7 @@ class MultimodalPDFRouterPlugin(Star):
                             f"{text_base_url.rstrip('/')}/chat/completions",
                             json=text_payload,
                             headers={"Authorization": f"Bearer {text_api_key}", "Content-Type": "application/json"},
-                            timeout=120,
+                            timeout=600,
                         ) as resp:
                             if resp.status == 200:
                                 res_data = await resp.json()
@@ -1160,8 +1160,8 @@ class MultimodalPDFRouterPlugin(Star):
                 document.getElementById('content').innerHTML = "<p style='color:red'>内容渲染失败，请联系管理员检查源码格式。</p>";
             }}
 
-            // 保险机制：如果 MathJax 没在 15s 内完成，强制设置完成位
-            setTimeout(() => {{ window.MATHJAX_DONE = true; }}, 15000);
+            // 保险机制：如果 MathJax 没在 45s 内完成，强制设置完成位
+            setTimeout(() => {{ window.MATHJAX_DONE = true; }}, 45000);
         }})();
         </script>
         </body>
@@ -1173,11 +1173,11 @@ class MultimodalPDFRouterPlugin(Star):
                 browser = await p.chromium.launch()
                 page = await browser.new_page()
                 # 使用 domcontentloaded 替代 networkidle，减少对不稳网络资源的强依赖
-                await page.set_content(html_content, wait_until="domcontentloaded", timeout=60000)
+                await page.set_content(html_content, wait_until="domcontentloaded", timeout=120000)
                 
                 # 精准等待渲染完成信号，增加 try-except 容错
                 try:
-                    await page.wait_for_function("window.MATHJAX_DONE === true", timeout=20000)
+                    await page.wait_for_function("window.MATHJAX_DONE === true", timeout=60000)
                     await asyncio.sleep(0.5) # 额外缓冲确保重绘完成
                 except Exception as we:
                     logger.warning(f"[PDF生成] MathJax 渲染等待超时，将尝试强制导出: {we}")
