@@ -98,6 +98,8 @@ class MultimodalPDFRouterPlugin(Star):
                     filepath = os.path.join(self.data_dir, filename)
                     try:
                         if os.path.isfile(filepath):
+                            if filename == "chat_history.json":
+                                continue
                             file_age = current_time - os.path.getmtime(filepath)
                             if file_age > one_day_seconds:
                                 os.remove(filepath)
