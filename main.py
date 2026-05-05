@@ -709,7 +709,6 @@ class MultimodalPDFRouterPlugin(Star):
             
             vision_prompt = "请精准提取图片中的所有文本内容。若包含数学公式，请务必使用清晰且符合规范的 LaTeX 语法输出。不遗漏任何细节。"
             
-            import base64
             api_image_urls = []
             for img_url in image_urls:
                 logger.info(f"[视觉中转] 处理图片URL: {img_url[:100]}")
